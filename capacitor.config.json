@@ -1,0 +1,12 @@
+{
+  "appId": "com.etherimirr.fitmaster",
+  "appName": "FitMaster",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "server": {
+    "iosScheme": "fitmaster"
+  }
+}

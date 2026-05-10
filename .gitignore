@@ -1,6 +1,26 @@
+# macOS
 .DS_Store
 *.swp
 *.bak
-node_modules/
+
+# Editors
 .vscode/
 .idea/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build output (regenerated from index.html via npm run build:web)
+www/
+
+# Capacitor / iOS - generated artifacts
+ios/App/App/public/
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/
+ios/.gradle/
+ios/App/Podfile.lock
+xcuserdata/
+*.xcuserstate

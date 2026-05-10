@@ -2,8 +2,12 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>FitMaster · 个人健身监督台</title>
+<!-- Native shims (no-op on web; intercept on iOS via Capacitor) -->
+<script src="src-mobile/storage.js"></script>
+<script src="src-mobile/camera.js"></script>
+<script src="src-mobile/notifications.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -4730,17 +4734,22 @@ function clearTodayData() {
 }
 
 /* ====================== Init ====================== */
-buildFoodList();
-setupDateInputs();
-
-// (Per-user migrations removed from public release — fill your data in the Profile and Goals pages.)
-
-applyTheme();
-refreshAll();
-applyLang();
-const _origRefresh = refreshAll;
-refreshAll = function() { _origRefresh(); applyLang(); };
-window.addEventListener('resize', refreshAll);
+(async function bootstrap() {
+  // On native iOS, wait for Capacitor Preferences to hydrate localStorage
+  if (window.__fitmasterStorageReady) {
+    await window.__fitmasterStorageReady;
+    // Re-read data after hydration (the early `let data = loadData()` may have read empty)
+    data = loadData();
+  }
+  buildFoodList();
+  setupDateInputs();
+  applyTheme();
+  refreshAll();
+  applyLang();
+  const _origRefresh = refreshAll;
+  refreshAll = function() { _origRefresh(); applyLang(); };
+  window.addEventListener('resize', refreshAll);
+})();
 </script>
 
 </body>
