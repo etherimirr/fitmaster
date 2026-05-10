@@ -275,7 +275,16 @@ async function saveData(data) {
 
 ## 10. 开发路线图
 
-### Phase 1 — Capacitor 包装（1-2 周）
+> **当前模式：免费 Apple ID（不付 $99）**。
+> 限制：App 装到 iPhone 后 7 天过期需重装；不能用 HealthKit / iCloud / Push 通知。
+> 决定升级到 $99 后再做 Phase 3+。
+
+### Phase 0 — 准备（你做）
+- [ ] 装 Xcode（Mac App Store，~10GB）
+- [ ] 用你的 Apple ID 在 Xcode 登录
+- [ ] 准备数据线连 iPhone（或用模拟器）
+
+### Phase 1 — Capacitor 包装（1-2 周，免费）
 - [ ] 初始化 Capacitor 项目
 - [ ] 把 `index.html` 拷进 `ios/App/App/public/`
 - [ ] 写 `storage.js` shim 替换 localStorage
@@ -285,15 +294,17 @@ async function saveData(data) {
 
 **完成标准**：可以在 iPhone 上跑，所有 Web 功能可用，照片拍摄走原生。
 
-### Phase 2 — 原生增强（2-3 周）
-- [ ] 本地通知（休息计时器到点）
+### Phase 2 — 原生增强（2-3 周，免费）
+- [ ] 本地通知（休息计时器到点）— 免费 ID 可用
 - [ ] Speech Framework 替换 WebSpeech
 - [ ] 移动端 UI 适配（底部 tab、手势）
 - [ ] Haptics 反馈
 
 **完成标准**：移动端 UX 顺手，关键交互原生化。
 
-### Phase 3 — HealthKit + iCloud（2-3 周）
+⚠️ **以下 Phase 需要 $99 Apple Developer 才能做**
+
+### Phase 3 — HealthKit + iCloud（2-3 周，需 $99）
 - [ ] HealthKit 读取步数 / 睡眠 / 心率 / 活动消耗
 - [ ] HealthKit 写体重和训练
 - [ ] iCloud Drive 同步实现
@@ -301,7 +312,7 @@ async function saveData(data) {
 
 **完成标准**：和 Apple Watch / Health 联动，多设备数据自动同步。
 
-### Phase 4 — App Store 上架（1 周）
+### Phase 4 — App Store 上架（1 周，需 $99）
 - [ ] 隐私政策网页
 - [ ] App icon / 启动屏 / 截图
 - [ ] App Store Connect 配置
