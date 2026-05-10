@@ -318,18 +318,19 @@ async function saveData(data) {
 
 ---
 
-## 11. 关键决策点 (TBD)
+## 11. 关键决策点
 
-| # | 决策 | 选项 | 推荐 |
+| # | 决策 | 选择 | 备注 |
 |---|---|---|---|
-| 1 | 上架 App Store？ | 是 / 否 / 仅自用 (Sideload) | 先 TestFlight 自用，后续看心情 |
-| 2 | AI Key 处理 | 用户自填 / 自建代理 / 内置 | 用户自填（个人 App 没钱补贴） |
-| 3 | iPad 适配 | v1 包含 / v2 再加 / 不做 | v1 自适应（不做专门 iPad UI） |
-| 4 | Android | 现在做 / 以后 / 不做 | 以后（Capacitor 其实免费送，但测试成本高） |
-| 5 | iCloud 同步策略 | 整文件覆盖 / 字段级 merge | 整文件 + 时间戳冲突解决 |
-| 6 | 重写关键页面为 SwiftUI | 是 / 否 | 否，能用 WebView 就 WebView |
-| 7 | 中英文 i18n | 沿用 Web 版 / 用 iOS 自带 | 沿用 Web 版（保持单一真相源） |
-| 8 | 后端 | 自建 / 不要 | 不要 |
+| 1 | 上架 App Store？ | ✅ **是** | 需 Apple Developer $99/年 |
+| 2 | AI Key 处理 | ✅ **用户自填** | 节省成本；引导用户去 Anthropic / OpenAI Console |
+| 3 | iCloud 同步 | ✅ **v1 就做** | iPhone ↔ iPad ↔ Mac (Web) 自动同步 |
+| 4 | iPad 适配 | v1 自适应 (默认) | 不做专门 iPad UI |
+| 5 | Android | 以后 (默认) | Capacitor 免费送，但 v1 不测试 |
+| 6 | 同步冲突策略 | last-write-wins + 本地保留 7 个版本 | 简单可靠 |
+| 7 | 重写关键页面为 SwiftUI | 否 (默认) | 能用 WebView 就 WebView，性能不够时再说 |
+| 8 | 中英文 i18n | 沿用 Web 版 (默认) | 保持单一真相源 |
+| 9 | 后端 | 不要 (默认) | 全部 P2P + iCloud |
 
 ---
 
