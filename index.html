@@ -2,12 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>FitMaster · 个人健身监督台</title>
-<!-- Native shims (no-op on web; intercept on iOS via Capacitor) -->
-<script src="src-mobile/storage.js"></script>
-<script src="src-mobile/camera.js"></script>
-<script src="src-mobile/notifications.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -397,6 +393,42 @@
   details summary { cursor: pointer; font-weight: 600; }
   details[open] summary { margin-bottom: 8px; }
 
+  /* User switcher */
+  .user-switcher {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 10px;
+    cursor: pointer; margin-bottom: 12px; font-size: 13px;
+    transition: all .15s;
+  }
+  .user-switcher:hover { border-color: var(--primary); }
+  .user-switcher .user-emoji { font-size: 22px; }
+  .user-switcher .user-name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-switcher .arrow { color: var(--muted); }
+  .user-menu {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 6px; margin-bottom: 12px;
+  }
+  .user-menu-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 6px;
+    cursor: pointer; font-size: 13px;
+  }
+  .user-menu-item:hover { background: var(--surface); }
+  .user-menu-item.active { background: var(--primary); color: #06210f; font-weight: 600; }
+  .user-menu-item .em { font-size: 18px; }
+  .user-menu-item .meta { font-size: 11px; color: var(--muted); }
+  .user-menu-actions {
+    display: flex; gap: 4px; margin-top: 6px;
+    padding-top: 6px; border-top: 1px solid var(--border);
+  }
+  .user-menu-actions button {
+    flex: 1; padding: 6px; font-size: 12px;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 6px; cursor: pointer; color: var(--text);
+  }
+  .user-menu-actions button:hover { background: var(--surface); }
+
   /* Custom tracker tile */
   .tracker-tile {
     background: var(--surface-2);
@@ -435,6 +467,21 @@
 
 <aside class="sidebar">
   <div class="logo">FitMaster<small>个人健身监督台</small></div>
+
+  <!-- User switcher -->
+  <div class="user-switcher" onclick="toggleUserMenu()" id="userSwitcher">
+    <span class="user-emoji" id="curUserEmoji">👤</span>
+    <span class="user-name" id="curUserName">我</span>
+    <span class="arrow" id="userArrow">▾</span>
+  </div>
+  <div class="user-menu" id="userMenu" style="display:none;">
+    <div id="userListItems"></div>
+    <div class="user-menu-actions">
+      <button onclick="addUserPrompt()" id="btnAddUser">+ 新用户</button>
+      <button onclick="addDemoUserPrompt()" id="btnAddDemo">+ 演示数据</button>
+    </div>
+  </div>
+
   <div class="nav-item active" data-page="dashboard"><span class="nav-icon">📊</span><span>主页</span></div>
   <div class="nav-item" data-page="ai"><span class="nav-icon">🤖</span><span>AI 助手</span></div>
   <div class="nav-item" data-page="journal"><span class="nav-icon">📔</span><span>每日日志</span></div>
@@ -1338,7 +1385,41 @@ e.g. squat 100kg×5 3 sets, chicken+rice for lunch, weight 70.5, knee a bit sore
 
 <script>
 /* ====================== Data Layer ====================== */
-const STORE_KEY = 'fitmaster.v1';
+/* ====================== Multi-user storage ====================== */
+const USERS_REGISTRY_KEY = 'fitmaster.users';
+const STORE_KEY_PREFIX = 'fitmaster.v1.';
+const STORE_KEY = 'fitmaster.v1'; // legacy single-user key, used for migration
+
+function loadUsersRegistry() {
+  try {
+    const raw = localStorage.getItem(USERS_REGISTRY_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+function saveUsersRegistry(reg) {
+  localStorage.setItem(USERS_REGISTRY_KEY, JSON.stringify(reg));
+}
+function getActiveUserId() {
+  const reg = loadUsersRegistry();
+  return reg?.activeId || 'main';
+}
+function getCurrentStoreKey() {
+  return STORE_KEY_PREFIX + getActiveUserId();
+}
+// Run multi-user migration BEFORE first loadData
+(function migrateToMultiUser() {
+  let reg = loadUsersRegistry();
+  if (reg) return;
+  // Move legacy single-user data into "main" user
+  const oldData = localStorage.getItem(STORE_KEY);
+  if (oldData) {
+    localStorage.setItem(STORE_KEY_PREFIX + 'main', oldData);
+    localStorage.removeItem(STORE_KEY);
+  }
+  reg = { activeId: 'main', users: [{ id: 'main', name: '我', emoji: '👤', createdAt: Date.now() }] };
+  saveUsersRegistry(reg);
+})();
 const DEFAULT_DATA = {
   profile: { name: '', gender: 'male', age: 25, height: 175, weight: 70, activity: 1.55, birthday: '', bf: null },
   goals:   { type: 'lose', targetWeight: 65, pace: 'normal', targetBF: null, workoutsPerWeek: 4, notes: '', proteinPerKg: null },
@@ -1373,12 +1454,12 @@ const DEFAULT_DATA = {
 
 function loadData() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = localStorage.getItem(getCurrentStoreKey());
     if (!raw) return JSON.parse(JSON.stringify(DEFAULT_DATA));
     return { ...JSON.parse(JSON.stringify(DEFAULT_DATA)), ...JSON.parse(raw) };
   } catch(e) { return JSON.parse(JSON.stringify(DEFAULT_DATA)); }
 }
-function saveData() { localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
+function saveData() { localStorage.setItem(getCurrentStoreKey(), JSON.stringify(data)); }
 let data = loadData();
 
 /* ====================== Exercise Library ====================== */
@@ -2988,9 +3069,9 @@ function importData() {
   r.readAsText(file);
 }
 function clearAllData() {
-  if (!confirm('真的要清空所有数据？这无法恢复！')) return;
+  if (!confirm('真的要清空当前用户的所有数据？这无法恢复！')) return;
   if (!confirm('再次确认：所有训练 / 饮食 / 体重记录将被删除！')) return;
-  localStorage.removeItem(STORE_KEY);
+  localStorage.removeItem(getCurrentStoreKey());
   data = loadData();
   refreshAll();
   showToast('已清空');
@@ -3139,6 +3220,7 @@ function refreshAll() {
   renderAISetup(); renderChat();
   renderModuleToggles(); renderTrackerList(); renderCustomTrackers();
   applyModuleVisibility();
+  renderUserSwitcher();
   checkBadges();
   // Weight chart
   const points = data.measures.map(m => ({ x: m.date, y: m.weight }));
@@ -3185,6 +3267,7 @@ function clearChat() {
 }
 function buildContext() {
   const today = todayStr();
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0,10);
   const recentWk = data.workouts.slice(0, 5).map(w => ({
     date: w.date, name: w.name,
     exercises: w.exercises.map(ex => `${ex.name}: ${ex.sets.map(s=>`${s.weight||0}×${s.reps||0}`).join(', ')}`)
@@ -3192,14 +3275,22 @@ function buildContext() {
   const recentMeas = data.measures.slice(-5);
   const todayDiet = data.diets.filter(d => d.date === today);
   const lastJournal = data.journals[0];
+  // Recent diets for last 3 days so AI can refer/move records
+  const recentDiets = data.diets.filter(d => {
+    const days = (Date.now() - new Date(d.date).getTime()) / 86400000;
+    return days <= 3;
+  }).map(d => ({ id: d.id, date: d.date, meal: d.meal, food: d.food, kcal: d.kcal }));
+
   return {
     today,
+    yesterday,
     profile: data.profile,
     goals: data.goals,
     targetKcal: getKcalGoal(),
     targetProtein: getProteinGoal(),
     recentWorkouts: recentWk,
     recentMeasures: recentMeas,
+    recentDiets,
     todayDietSummary: todayDiet.length ? todayDiet.reduce((s,i) => ({
       kcal: s.kcal + (i.kcal||0), protein: s.protein + (i.protein||0),
       carb: s.carb + (i.carb||0), fat: s.fat + (i.fat||0)
@@ -3259,12 +3350,15 @@ const SYSTEM_PROMPT_ZH = `你是 FitMaster 健身 App 的 AI 教练，中文回�
 \`\`\`
 
 可用工具：
-- log_workout: 训练。args: {name:string, exercises:[{name:string, part:string, sets:[{weight:number, reps:number, rpe?:number}]}], duration?:number, notes?:string}
-- log_diet: 饮食（每个食物一次调用）。args: {meal:"breakfast|lunch|dinner|snack", food:string, amount:number, kcal:number, protein:number, carb:number, fat:number}
-- log_weight: 体重/体测。args: {weight?:number, bf?:number, waist?:number, chest?:number, hip?:number, arm?:number, thigh?:number}
-- log_water: 加饮水。args: {ml:number}
-- log_journal: 更新今日日志（可多次累加）。args: {note?:string, energy?:1-10, mood?:1-10, stress?:1-10, sleep?:number, sleepQ?:1-10, rhr?:number, symptomNote?:string, soreness?:{部位:1|2|3}}
-- log_supplement: 补剂。args: {type:string, dose:string}
+- log_workout: 训练。args: {date?:"YYYY-MM-DD", name:string, exercises:[{name:string, part:string, sets:[{weight:number, reps:number, rpe?:number}]}], duration?:number, notes?:string}
+- log_diet: 饮食（每个食物一次调用）。args: {date?:"YYYY-MM-DD", meal:"breakfast|lunch|dinner|snack", food:string, amount:number, kcal:number, protein:number, carb:number, fat:number}
+- log_weight: 体重/体测。args: {date?:"YYYY-MM-DD", weight?:number, bf?:number, waist?:number, chest?:number, hip?:number, arm?:number, thigh?:number}
+- log_water: 加饮水。args: {date?:"YYYY-MM-DD", ml:number}
+- log_journal: 更新某日日志（可多次累加）。args: {date?:"YYYY-MM-DD", note?:string, energy?:1-10, mood?:1-10, stress?:1-10, sleep?:number, sleepQ?:1-10, rhr?:number, symptomNote?:string, soreness?:{部位:1|2|3}}
+- log_supplement: 补剂。args: {date?:"YYYY-MM-DD", type:string, dose:string}
+- delete_records: 按类型+日期批量删除（"把今天的饮食全删了" "删掉昨天的训练"）。args: {type:"diet|workout|supplement|water|journal|all", date?:"YYYY-MM-DD"(默认今天)}
+
+**重要：所有 log_* 都接受 date 参数（可选，默认今天）。如果用户说"我刚刚记的实际是昨天的"，你应该：1) 用 delete_records 删今天那些误记的；2) 用 log_* 带 date:"昨天的日期" 重新写入。日期算法：今天是 ${new Date().toISOString().slice(0,10)}，昨天是 ${new Date(Date.now()-86400000).toISOString().slice(0,10)}。**
 - save_photo: 把用户上传的图片存为进度照（适用于身体/镜子照）。args: {angle:"前|侧|后|局部", note?:string}
 - update_profile: 更新档案。args: {name?:string, gender?:"male"|"female", age?:number, height?:number, weight?:number, bf?:number, activity?:1.2|1.375|1.55|1.725|1.9}
 - update_goals: 更新目标。args: {type?:"lose"|"gain"|"maintain"|"recomp", targetWeight?:number, pace?:"slow"|"normal"|"fast", targetBF?:number, workoutsPerWeek?:number, proteinPerKg?:number, notes?:string}
@@ -3355,7 +3449,7 @@ async function callLLM(userMsg, images=[]) {
         model: cfg.model || 'gpt-4o-mini',
         max_tokens: 1500,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: (data.lang === 'en' ? SYSTEM_PROMPT_EN : SYSTEM_PROMPT_ZH) },
           ...data.aiChat.slice(-10, -2).map(m => ({ role: m.role, content: m.content })),
           { role: 'user', content: images.length ? userContent : userMsg }
         ]
@@ -3378,36 +3472,42 @@ function handleAIToolCalls(text) {
 function executeAITool(tool, args) {
   if (tool === 'log_workout') {
     const wk = {
-      id: uid(), date: todayStr(), name: args.name || 'AI 记录', duration: 0,
+      id: uid(), date: args.date || todayStr(), name: args.name || 'AI 记录', duration: args.duration || 0,
       exercises: (args.exercises || []).map(e => ({
         name: e.name, part: e.part || '其它',
-        sets: (e.sets || []).map(s => ({ weight: s.weight, reps: s.reps }))
-      })), notes: '由 AI 助手记录'
+        sets: (e.sets || []).map(s => ({ weight: s.weight, reps: s.reps, rpe: s.rpe || null }))
+      })), notes: args.notes || '由 AI 助手记录'
     };
     data.workouts.unshift(wk);
-    showToast('💪 训练已由 AI 记录');
+    showToast(`💪 训练已记录 (${wk.date})`);
   } else if (tool === 'log_diet') {
-    data.diets.unshift({ id: uid(), date: todayStr(), ...args });
-    showToast('🍱 饮食已由 AI 记录');
+    const date = args.date || todayStr();
+    const { date: _, ...rest } = args;
+    data.diets.unshift({ id: uid(), date, ...rest });
+    showToast(`🍱 饮食已记录 (${date})`);
   } else if (tool === 'log_weight') {
-    data.measures.push({ id: uid(), date: todayStr(), ...args });
+    const date = args.date || todayStr();
+    const { date: _, ...rest } = args;
+    data.measures.push({ id: uid(), date, ...rest });
     data.measures.sort((a,b)=>a.date.localeCompare(b.date));
-    if (args.weight) data.profile.weight = args.weight;
-    showToast('⚖️ 体重已由 AI 记录');
+    if (args.weight && date === todayStr()) data.profile.weight = args.weight;
+    showToast(`⚖️ 体测已记录 (${date})`);
   } else if (tool === 'log_water') {
-    const today = todayStr();
-    data.water[today] = (data.water[today] || 0) + (args.ml || 0);
-    showToast(`💧 +${args.ml}ml 已记录`);
+    const date = args.date || todayStr();
+    data.water[date] = (data.water[date] || 0) + (args.ml || 0);
+    showToast(`💧 +${args.ml}ml (${date})`);
   } else if (tool === 'log_journal') {
-    const today = todayStr();
-    let j = data.journals.find(x => x.date === today);
-    if (!j) { j = { id: uid(), date: today, soreness: {} }; data.journals.unshift(j); }
-    Object.assign(j, args);
-    if (args.soreness) j.soreness = { ...(j.soreness||{}), ...args.soreness };
-    showToast('📔 日志已由 AI 更新');
+    const date = args.date || todayStr();
+    let j = data.journals.find(x => x.date === date);
+    if (!j) { j = { id: uid(), date, soreness: {} }; data.journals.unshift(j); }
+    const { date: _, soreness, ...rest } = args;
+    Object.assign(j, rest);
+    if (soreness) j.soreness = { ...(j.soreness||{}), ...soreness };
+    showToast(`📔 日志已更新 (${date})`);
   } else if (tool === 'log_supplement') {
-    data.supplements.unshift({ id: uid(), date: todayStr(), type: args.type, dose: args.dose, time: new Date().toTimeString().slice(0,5) });
-    showToast('💊 补剂已由 AI 记录');
+    const date = args.date || todayStr();
+    data.supplements.unshift({ id: uid(), date, type: args.type, dose: args.dose, time: args.time || new Date().toTimeString().slice(0,5) });
+    showToast(`💊 补剂已记录 (${date})`);
   } else if (tool === 'save_photo') {
     if (pendingPhotoSourceImages.length) {
       const img = pendingPhotoSourceImages.shift();
@@ -3447,6 +3547,35 @@ function executeAITool(tool, args) {
   } else if (tool === 'delete_measure') {
     data.measures = data.measures.filter(m => m.id !== args.id);
     showToast('🗑 体测已删除');
+  } else if (tool === 'delete_records') {
+    // Bulk delete by type + date (or all today if no date)
+    const date = args.date || todayStr();
+    const type = args.type;
+    let count = 0;
+    if (type === 'diet' || type === 'all') {
+      const before = data.diets.length;
+      data.diets = data.diets.filter(d => d.date !== date);
+      count += before - data.diets.length;
+    }
+    if (type === 'workout' || type === 'all') {
+      const before = data.workouts.length;
+      data.workouts = data.workouts.filter(w => w.date !== date);
+      count += before - data.workouts.length;
+    }
+    if (type === 'supplement' || type === 'all') {
+      const before = data.supplements.length;
+      data.supplements = data.supplements.filter(s => s.date !== date);
+      count += before - data.supplements.length;
+    }
+    if (type === 'water' || type === 'all') {
+      if (data.water[date]) { delete data.water[date]; count++; }
+    }
+    if (type === 'journal' || type === 'all') {
+      const before = data.journals.length;
+      data.journals = data.journals.filter(j => j.date !== date);
+      count += before - data.journals.length;
+    }
+    showToast(`🗑 删除了 ${count} 条 ${date} 的记录`);
   } else if (tool === 'toggle_module') {
     if (args.module === 'dashboard' || args.module === 'settings') {
       showToast('主页和设置不能关闭');
@@ -3977,6 +4106,324 @@ document.addEventListener('change', e => {
   if (e.target.id === 'jDate') loadJournalForm();
 });
 
+/* ====================== User Management ====================== */
+function renderUserSwitcher() {
+  const en = data?.lang === 'en';
+  const reg = loadUsersRegistry() || { activeId: 'main', users: [{id:'main',name:en?'Me':'我',emoji:'👤'}] };
+  const cur = reg.users.find(u => u.id === reg.activeId) || reg.users[0];
+  document.getElementById('curUserEmoji').textContent = cur.emoji || '👤';
+  // Translate built-in user names on display
+  const displayName = (cur.name === '我' && en) ? 'Me' : (cur.name === '演示·我的进度' && en) ? 'Demo · My Progress' : cur.name;
+  document.getElementById('curUserName').textContent = displayName;
+
+  const labelActive = en ? 'Active' : '当前使用中';
+  const labelSwitch = en ? 'Click to switch' : '点击切换';
+  const list = document.getElementById('userListItems');
+  list.innerHTML = reg.users.map(u => {
+    const dn = (u.name === '我' && en) ? 'Me' : (u.name === '演示·我的进度' && en) ? 'Demo · My Progress' : u.name;
+    return `
+    <div class="user-menu-item ${u.id === reg.activeId ? 'active':''}" onclick="switchUser('${u.id}')">
+      <span class="em">${u.emoji||'👤'}</span>
+      <div style="flex:1;">
+        <div>${escapeHTML(dn)}</div>
+        <div class="meta">${u.id === reg.activeId ? labelActive : labelSwitch}</div>
+      </div>
+      ${u.id !== 'main' ? `<button onclick="event.stopPropagation();deleteUser('${u.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;">×</button>` : ''}
+    </div>
+  `;}).join('');
+
+  // Translate the bottom action buttons
+  const btnAddUser = document.getElementById('btnAddUser');
+  const btnAddDemo = document.getElementById('btnAddDemo');
+  if (btnAddUser) btnAddUser.textContent = en ? '+ New User' : '+ 新用户';
+  if (btnAddDemo) btnAddDemo.textContent = en ? '+ Demo Data' : '+ 演示数据';
+}
+function toggleUserMenu() {
+  const menu = document.getElementById('userMenu');
+  const arrow = document.getElementById('userArrow');
+  const open = menu.style.display === 'none';
+  menu.style.display = open ? 'block' : 'none';
+  arrow.textContent = open ? '▴' : '▾';
+}
+function switchUser(id) {
+  const reg = loadUsersRegistry();
+  if (!reg) return;
+  if (reg.activeId === id) { toggleUserMenu(); return; }
+  // Save current user's data first (already auto-saved on every change)
+  reg.activeId = id;
+  saveUsersRegistry(reg);
+  data = loadData();
+  refreshAll();
+  renderUserSwitcher();
+  toggleUserMenu();
+  showToast(`已切换到 ${reg.users.find(u=>u.id===id)?.name}`);
+}
+function addUserPrompt() {
+  const en = data?.lang === 'en';
+  const name = prompt(en ? "New user's name:" : '新用户名字：');
+  if (!name) return;
+  const emoji = prompt(en ? 'Emoji avatar (optional):' : 'Emoji 头像（可选）：', '👤') || '👤';
+  const id = 'u_' + Math.random().toString(36).slice(2, 8);
+  const reg = loadUsersRegistry();
+  reg.users.push({ id, name, emoji, createdAt: Date.now() });
+  saveUsersRegistry(reg);
+  switchUser(id);
+}
+function addDemoUserPrompt() {
+  const en = data?.lang === 'en';
+  const msg = en
+    ? 'Create a "Demo user" with 60 days of simulated fitness data (workouts, diet, weight, journal) based on your profile.\n\nProceed?'
+    : '生成"演示用户"，包含基于你档案的 60 天模拟健身数据（训练 / 饮食 / 体重 / 日志等）。\n\n确定生成？';
+  if (!confirm(msg)) return;
+  const id = 'demo_' + Math.random().toString(36).slice(2, 6);
+  const reg = loadUsersRegistry();
+  const baseProfile = { ...data.profile };
+  const baseGoals = { ...data.goals };
+  reg.users.push({ id, name: '演示·我的进度', emoji: '🌟', createdAt: Date.now() });
+  saveUsersRegistry(reg);
+  reg.activeId = id;
+  saveUsersRegistry(reg);
+  data = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  data.lang = en ? 'en' : 'zh';
+  generateDemoData(baseProfile, baseGoals);
+  saveData();
+  refreshAll();
+  renderUserSwitcher();
+  toggleUserMenu();
+  showToast(en ? '🌟 60 days of demo data generated' : '🌟 演示数据已生成（60 天）');
+}
+function deleteUser(id) {
+  const en = data?.lang === 'en';
+  if (id === 'main') { showToast(en ? "Main user can't be deleted" : '主用户不能删'); return; }
+  if (!confirm(en ? 'Delete all data for this user? Cannot be undone!' : '删除这个用户的所有数据？无法恢复！')) return;
+  localStorage.removeItem(STORE_KEY_PREFIX + id);
+  const reg = loadUsersRegistry();
+  reg.users = reg.users.filter(u => u.id !== id);
+  if (reg.activeId === id) reg.activeId = 'main';
+  saveUsersRegistry(reg);
+  data = loadData();
+  refreshAll();
+  renderUserSwitcher();
+  showToast('已删除');
+}
+
+/* ====================== Demo Data Generator ====================== */
+function generateDemoData(baseProfile, baseGoals) {
+  // Use base user's profile but with demo flair
+  data.profile = {
+    ...baseProfile,
+    name: '演示',
+  };
+  data.goals = { ...baseGoals };
+  data.cycle = { enabled: false, lastPeriodStart: null, cycleLength: 28, lutealLength: 14 };
+
+  const today = new Date();
+  const startWeight = baseProfile.weight || 61;
+  const startBF = baseProfile.bf || 24;
+
+  // Workout templates by day-of-week (matching user's weekPlan style)
+  const workoutTemplates = {
+    1: { // Monday: Push
+      name: '推日',
+      exercises: [
+        { name: '上斜哑铃卧推', part: '胸', baseWeight: 12, sets: 4, reps: 10 },
+        { name: '哑铃推举', part: '肩', baseWeight: 8, sets: 4, reps: 10 },
+        { name: '哑铃侧平举', part: '肩', baseWeight: 5, sets: 3, reps: 12 },
+        { name: '绳索下压', part: '手臂', baseWeight: 15, sets: 3, reps: 12 },
+      ]
+    },
+    2: { // Tuesday: Pull (back focus)
+      name: '拉日 ★背肌专项★',
+      exercises: [
+        { name: '高位下拉', part: '背', baseWeight: 30, sets: 4, reps: 10 },
+        { name: '坐姿划船', part: '背', baseWeight: 25, sets: 4, reps: 10 },
+        { name: '单臂哑铃划船', part: '背', baseWeight: 12, sets: 3, reps: 12 },
+        { name: '面拉', part: '肩', baseWeight: 10, sets: 3, reps: 15 },
+        { name: '哑铃弯举', part: '手臂', baseWeight: 7, sets: 3, reps: 12 },
+      ]
+    },
+    3: { // Wednesday: Glutes A
+      name: '臀腿日 A',
+      exercises: [
+        { name: '杠铃臀推', part: '腿', baseWeight: 60, sets: 4, reps: 10 },
+        { name: '罗马尼亚硬拉', part: '腿', baseWeight: 40, sets: 3, reps: 10 },
+        { name: '保加利亚分腿蹲', part: '腿', baseWeight: 8, sets: 3, reps: 12 },
+        { name: '单腿臀桥', part: '腿', baseWeight: 0, sets: 3, reps: 15 },
+      ]
+    },
+    4: { // Thursday: light cardio (optional - 60% chance)
+      name: '姿态 + 轻有氧',
+      exercises: [
+        { name: '面拉', part: '肩', baseWeight: 10, sets: 3, reps: 15 },
+        { name: 'YTW 字母', part: '肩', baseWeight: 0, sets: 3, reps: 10 },
+        { name: '椭圆机', part: '有氧', baseWeight: 0, sets: 1, reps: 30 }, // 30 min
+      ]
+    },
+    5: { // Friday: Glutes B
+      name: '臀腿 B + 核心',
+      exercises: [
+        { name: '相扑深蹲', part: '腿', baseWeight: 14, sets: 4, reps: 12 },
+        { name: '蚌式开合', part: '腿', baseWeight: 0, sets: 3, reps: 15 },
+        { name: '绳索后踢', part: '腿', baseWeight: 8, sets: 3, reps: 12 },
+        { name: '平板支撑', part: '核心', baseWeight: 0, sets: 3, reps: 60 }, // 60 sec
+        { name: '死虫式', part: '核心', baseWeight: 0, sets: 3, reps: 12 },
+      ]
+    },
+    6: { // Saturday: Full body
+      name: '全身 + 硬拉',
+      exercises: [
+        { name: '硬拉', part: '背', baseWeight: 50, sets: 4, reps: 6 },
+        { name: '引体向上', part: '背', baseWeight: 0, sets: 3, reps: 5 },
+        { name: '杠铃推举', part: '肩', baseWeight: 22, sets: 3, reps: 8 },
+        { name: '面拉', part: '肩', baseWeight: 10, sets: 3, reps: 15 },
+      ]
+    },
+    0: null // Sunday rest
+  };
+
+  // Common meal patterns (each ~2000 kcal/day total)
+  const breakfastOptions = [
+    [{food:'燕麦',amount:60,kcal:227,protein:8,carb:40,fat:4}, {food:'鸡蛋',amount:100,kcal:155,protein:13,carb:1.1,fat:11}, {food:'牛奶(全脂)',amount:200,kcal:122,protein:6.4,carb:9.6,fat:6.6}],
+    [{food:'希腊酸奶',amount:200,kcal:194,protein:18,carb:8,fat:10}, {food:'蓝莓',amount:80,kcal:46,protein:0.6,carb:11.2,fat:0.2}, {food:'杏仁',amount:20,kcal:116,protein:4.2,carb:4.4,fat:10}],
+    [{food:'全麦面包',amount:80,kcal:198,protein:10.4,carb:32.8,fat:3.4}, {food:'鸡蛋',amount:100,kcal:155,protein:13,carb:1.1,fat:11}, {food:'牛油果',amount:50,kcal:80,protein:1,carb:4.5,fat:7.5}],
+  ];
+  const lunchOptions = [
+    [{food:'鸡胸肉',amount:200,kcal:330,protein:62,carb:0,fat:7.2}, {food:'白米饭(熟)',amount:200,kcal:232,protein:5.2,carb:51.2,fat:0.6}, {food:'西蓝花',amount:150,kcal:51,protein:4.2,carb:10.5,fat:0.6}],
+    [{food:'三文鱼',amount:150,kcal:312,protein:30,carb:0,fat:19.5}, {food:'糙米饭',amount:180,kcal:200,protein:4.7,carb:41.4,fat:1.6}, {food:'菠菜',amount:100,kcal:23,protein:2.9,carb:3.6,fat:0.4}],
+    [{food:'牛肉(瘦)',amount:150,kcal:375,protein:39,carb:0,fat:22.5}, {food:'红薯',amount:200,kcal:172,protein:3.2,carb:40,fat:0.2}, {food:'生菜',amount:100,kcal:15,protein:1.4,carb:2.9,fat:0.2}],
+  ];
+  const dinnerOptions = [
+    [{food:'虾',amount:150,kcal:149,protein:36,carb:0.3,fat:0.5}, {food:'豆腐',amount:200,kcal:152,protein:16,carb:3.8,fat:9.6}, {food:'西蓝花',amount:200,kcal:68,protein:5.6,carb:14,fat:0.8}],
+    [{food:'鸡腿肉(去皮)',amount:180,kcal:310,protein:50.4,carb:0,fat:11.7}, {food:'土豆',amount:150,kcal:116,protein:3,carb:25.5,fat:0.2}, {food:'番茄',amount:200,kcal:36,protein:1.8,carb:7.8,fat:0.4}],
+    [{food:'金枪鱼罐头',amount:120,kcal:139,protein:31.2,carb:0,fat:1.2}, {food:'豆浆',amount:300,kcal:99,protein:10.8,carb:1.8,fat:4.8}, {food:'黄瓜',amount:150,kcal:24,protein:1.1,carb:5.4,fat:0.2}],
+  ];
+  const snackOptions = [
+    [{food:'蛋白粉(乳清)',amount:30,kcal:114,protein:24,carb:2.1,fat:1.5}],
+    [{food:'苹果',amount:200,kcal:104,protein:0.6,carb:28,fat:0.4}],
+    [{food:'希腊酸奶',amount:150,kcal:146,protein:13.5,carb:6,fat:7.5}],
+    [{food:'香蕉',amount:120,kcal:107,protein:1.3,carb:27.6,fat:0.4}],
+  ];
+
+  const pickRandom = arr => arr[Math.floor(Math.random()*arr.length)];
+
+  // Generate 60 days, oldest first
+  for (let dayOffset = 60; dayOffset >= 0; dayOffset--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - dayOffset);
+    const dateStr = d.toISOString().slice(0,10);
+    const dow = d.getDay();
+    const weekProgress = (60 - dayOffset) / 60; // 0 → 1 over time
+
+    // Workout: most planned days, ~85% adherence
+    const tmpl = workoutTemplates[dow];
+    if (tmpl && Math.random() < 0.85) {
+      const wkExercises = tmpl.exercises.map(ex => {
+        const sets = [];
+        // Progressive overload: weight increases ~10% over 60 days
+        const progressMult = 1 + 0.1 * weekProgress;
+        const w = Math.round(ex.baseWeight * progressMult * 10) / 10;
+        for (let s = 0; s < ex.sets; s++) {
+          sets.push({
+            weight: w,
+            reps: ex.reps + (Math.random() < 0.3 ? -1 : 0),
+            rpe: Math.random() < 0.4 ? (Math.random() < 0.5 ? 7 : 8) : null
+          });
+        }
+        return { name: ex.name, part: ex.part, sets, tags: [] };
+      });
+      data.workouts.unshift({
+        id: uid(), date: dateStr, name: tmpl.name,
+        duration: 45 + Math.floor(Math.random()*20),
+        exercises: wkExercises, notes: ''
+      });
+    }
+
+    // Diet: 3 main meals + 1 snack on most days (~95%)
+    if (Math.random() < 0.95) {
+      const meals = [
+        ['breakfast', pickRandom(breakfastOptions)],
+        ['lunch', pickRandom(lunchOptions)],
+        ['dinner', pickRandom(dinnerOptions)],
+      ];
+      if (Math.random() < 0.7) meals.push(['snack', pickRandom(snackOptions)]);
+      meals.forEach(([meal, items]) => {
+        items.forEach(it => {
+          data.diets.unshift({ id: uid(), date: dateStr, meal, ...it });
+        });
+      });
+    }
+
+    // Body measurements: every 3-4 days
+    if (dayOffset % 3 === 0 || dayOffset === 60 || dayOffset === 0) {
+      // Recomp: weight slightly down, BF more visibly down
+      const noise = (Math.random() - 0.5) * 0.4;
+      const wt = startWeight - 0.3 * weekProgress + noise;
+      const bf = startBF - 2.5 * weekProgress + (Math.random()-0.5)*0.5;
+      data.measures.push({
+        id: uid(), date: dateStr,
+        weight: Math.round(wt * 10) / 10,
+        bf: Math.round(bf * 10) / 10,
+        chest: dayOffset % 14 === 0 ? Math.round((87 + (Math.random()-0.5))*10)/10 : null,
+        waist: dayOffset % 14 === 0 ? Math.round((68 - 1.5*weekProgress + (Math.random()-0.5))*10)/10 : null,
+        hip: dayOffset % 14 === 0 ? Math.round((94 + 0.5*weekProgress + (Math.random()-0.5))*10)/10 : null,
+        arm: dayOffset % 14 === 0 ? Math.round((26 + 0.3*weekProgress)*10)/10 : null,
+        thigh: dayOffset % 14 === 0 ? Math.round((54 + 0.5*weekProgress)*10)/10 : null,
+      });
+    }
+
+    // Water: most days hit goal
+    data.water[dateStr] = 1500 + Math.floor(Math.random() * 800);
+
+    // Journal: ~50% of days
+    if (Math.random() < 0.5) {
+      const sleepBase = 7.5 + (Math.random() - 0.5) * 2;
+      const energy = Math.min(10, Math.max(3, Math.round(7 + (Math.random()-0.5)*4)));
+      const mood = Math.min(10, Math.max(3, Math.round(7 + (Math.random()-0.5)*4)));
+      const stress = Math.round(3 + Math.random()*4);
+      const soreness = {};
+      // Day after workout, some soreness
+      const yesterdayWk = data.workouts.find(w => {
+        const wd = new Date(w.date);
+        const dayBefore = new Date(d); dayBefore.setDate(dayBefore.getDate()-1);
+        return wd.toISOString().slice(0,10) === dayBefore.toISOString().slice(0,10);
+      });
+      if (yesterdayWk && Math.random() < 0.6) {
+        const parts = ['左大腿','右大腿','胸','背','左肩','右肩'];
+        const p = pickRandom(parts);
+        soreness[p] = Math.random() < 0.7 ? 1 : 2;
+      }
+      data.journals.unshift({
+        id: uid(), date: dateStr,
+        overall: Math.round((energy + mood) / 2),
+        energy, mood, stress,
+        sleep: Math.round(sleepBase * 10) / 10,
+        sleepQ: Math.min(10, Math.max(4, Math.round(7 + (Math.random()-0.5)*3))),
+        rhr: Math.round(60 + Math.random()*8),
+        soreness,
+        symptomNote: '',
+        note: ''
+      });
+    }
+
+    // Supplements (protein on workout days)
+    if (tmpl && Math.random() < 0.7) {
+      data.supplements.unshift({
+        id: uid(), date: dateStr, type: '蛋白粉', dose: '30g', time: '17:00'
+      });
+    }
+
+    // Check-in (~70%)
+    if (Math.random() < 0.7) data.checkins.push(dateStr);
+  }
+
+  data.measures.sort((a,b) => a.date.localeCompare(b.date));
+  data.checkins = [...new Set(data.checkins)];
+  // Update profile current weight to last measurement
+  const lastM = data.measures[data.measures.length - 1];
+  if (lastM) data.profile.weight = lastM.weight;
+  if (lastM?.bf) data.profile.bf = lastM.bf;
+}
+
 /* ====================== Modules (show/hide nav pages) ====================== */
 function applyModuleVisibility() {
   document.querySelectorAll('.nav-item[data-page]').forEach(item => {
@@ -3995,7 +4442,16 @@ function toggleModule(key, enabled) {
 function renderModuleToggles() {
   const c = document.getElementById('moduleToggles');
   if (!c) return;
-  const items = [
+  const en = data?.lang === 'en';
+  const items = en ? [
+    {key:'ai', name:'🤖 AI Assistant'}, {key:'journal', name:'📔 Daily Journal'},
+    {key:'profile', name:'👤 Profile'}, {key:'goals', name:'🎯 Goals & Forecast'},
+    {key:'workout', name:'🏋️ Workouts'}, {key:'library', name:'📚 Exercise Library'},
+    {key:'plan', name:'📅 Training Plan'}, {key:'diet', name:'🍱 Diet & Supplements'},
+    {key:'weight', name:'⚖️ Body Data'}, {key:'progress', name:'📈 Progress'},
+    {key:'achievements', name:'🏆 Achievements & Challenges'}, {key:'tools', name:'🧮 Calculators'},
+    {key:'checkin', name:'✅ Check-in & Habits'}
+  ] : [
     {key:'ai', name:'🤖 AI 助手'}, {key:'journal', name:'📔 每日日志'},
     {key:'profile', name:'👤 个人档案'}, {key:'goals', name:'🎯 目标 & 预期'},
     {key:'workout', name:'🏋️ 训练记录'}, {key:'library', name:'📚 动作库'},
@@ -4018,7 +4474,15 @@ function renderCustomTrackers() {
   if (!card || !grid) return;
   if (!trackers.length) { card.style.display = 'none'; return; }
   card.style.display = 'block';
+  const en = data?.lang === 'en';
   const today = todayStr();
+  // Update card title for language
+  const cardTitle = card.querySelector('h3');
+  if (cardTitle) cardTitle.textContent = en ? '📊 Custom Trackers' : '📊 自定义追踪';
+  const manageBtn = card.querySelector('button');
+  if (manageBtn) manageBtn.textContent = en ? 'Manage' : '管理';
+  const reachedLabel = en ? 'Done ✓' : '已达成 ✓';
+  const logBtnLabel = en ? '+ Log' : '+ 记录';
   grid.innerHTML = trackers.map(t => {
     const todayLogs = (data.customLogs || []).filter(l => l.trackerId === t.id && l.date === today);
     const value = todayLogs.reduce((s,l) => s + (l.value || 0), 0);
@@ -4029,11 +4493,11 @@ function renderCustomTrackers() {
         <div style="display:flex;align-items:center;gap:10px;">
           <div style="font-size:24px;">${t.icon || '📊'}</div>
           <div style="flex:1;">
-            <div style="font-weight:600;">${escapeHTML(t.name)} ${reached ? '<span class="badge badge-primary" style="font-size:10px;">已达成 ✓</span>' : ''}</div>
+            <div style="font-weight:600;">${escapeHTML(t.name)} ${reached ? `<span class="badge badge-primary" style="font-size:10px;">${reachedLabel}</span>` : ''}</div>
             <div style="font-size:13px;color:var(--muted);">${value}${t.target?` / ${t.target}`:''} ${escapeHTML(t.unit||'')}</div>
             ${t.target ? `<div class="progress" style="margin-top:4px;"><div class="progress-fill" style="width:${pct}%;"></div></div>` : ''}
           </div>
-          <button class="btn btn-sm" onclick="quickLogTracker('${t.id}')">+ 记录</button>
+          <button class="btn btn-sm" onclick="quickLogTracker('${t.id}')">${logBtnLabel}</button>
         </div>
       </div>
     `;
@@ -4042,10 +4506,14 @@ function renderCustomTrackers() {
 function quickLogTracker(trackerId) {
   const t = (data.customTrackers||[]).find(x => x.id === trackerId);
   if (!t) return;
-  const v = prompt(`记录 ${t.name} (${t.unit||''}):\n输入数字，可正可负（负数会扣减）`);
+  const en = data?.lang === 'en';
+  const promptMsg = en
+    ? `Log ${t.name} (${t.unit||''}):\nEnter a number (negative to subtract)`
+    : `记录 ${t.name} (${t.unit||''}):\n输入数字，可正可负（负数会扣减）`;
+  const v = prompt(promptMsg);
   if (v === null) return;
   const num = parseFloat(v);
-  if (isNaN(num)) { showToast('请输入数字'); return; }
+  if (isNaN(num)) { showToast(en ? 'Please enter a number' : '请输入数字'); return; }
   (data.customLogs ||= []).push({ id: uid(), trackerId, date: todayStr(), value: num });
   saveData();
   renderCustomTrackers();
@@ -4734,22 +5202,17 @@ function clearTodayData() {
 }
 
 /* ====================== Init ====================== */
-(async function bootstrap() {
-  // On native iOS, wait for Capacitor Preferences to hydrate localStorage
-  if (window.__fitmasterStorageReady) {
-    await window.__fitmasterStorageReady;
-    // Re-read data after hydration (the early `let data = loadData()` may have read empty)
-    data = loadData();
-  }
-  buildFoodList();
-  setupDateInputs();
-  applyTheme();
-  refreshAll();
-  applyLang();
-  const _origRefresh = refreshAll;
-  refreshAll = function() { _origRefresh(); applyLang(); };
-  window.addEventListener('resize', refreshAll);
-})();
+buildFoodList();
+setupDateInputs();
+
+// (Per-user migrations removed from public release — use the Profile and Goals pages.)
+
+applyTheme();
+refreshAll();
+applyLang();
+const _origRefresh = refreshAll;
+refreshAll = function() { _origRefresh(); applyLang(); };
+window.addEventListener('resize', refreshAll);
 </script>
 
 </body>
